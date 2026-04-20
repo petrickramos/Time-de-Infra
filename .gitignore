@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE files
+.vscode/
+.idea/
+
+# Temp files
+*.tmp
+*.log
+
+# Sensitive files — NUNCA commitar
+.env
+.env.local
+*.key
+*.pem
+
+# Local agent state (gerado automaticamente pelo agente)
+.claude/settings.local.json
+.cursor/settings.local.json
+
+# Playwright artifacts
+screenshots/
+*.png
+*.jpg
