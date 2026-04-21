@@ -22,7 +22,7 @@ Este repositorio e o pacote de contexto operacional que torna um agente confiave
 
 | Termo | Definicao |
 |-------|-----------|
-| **Harness** | A infraestrutura que envolve o agente e o torna operavel com contexto, memoria, ferramentas e guardrails. **E isso que este repositorio e.** |
+| **Harness** | A infraestrutura que envolve o agente e o torna operavel com contexto, memoria, ferramentas e guardrails. |
 | **Skill** | Um pacote modular de instrucoes carregado sob demanda |
 | **Agent** | O modelo de IA em si: Codex, Claude, GPT, etc. |
 
