@@ -14,17 +14,15 @@ desktop.ini
 *.tmp
 *.log
 
-# Sensitive files — NUNCA commitar
+# Sensitive files - NUNCA commitar
 .env
 .env.local
 *.key
 *.pem
 
-# Local agent state (gerado automaticamente pelo agente)
+# Local agent state
 .claude/settings.local.json
 .cursor/settings.local.json
 
 # Playwright artifacts
 screenshots/
-*.png
-*.jpg

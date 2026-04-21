@@ -4,32 +4,24 @@ description: |
   Use Playwright to control the browser, navigate pages, take screenshots,
   interact with elements, and perform end-to-end testing. Invoke when asked to
   test a web app, navigate a website, take screenshots, or automate browser tasks.
-  CRITICAL: always reuse the user's existing Chrome session via CDP — never
-  download Chromium and never ask for login again.
-version: 2.0.0
-date: 2026-04-05
+  CRITICAL: always reuse the user's canonical CDP-compatible browser session for
+  authenticated workflows. Never download Chromium and never force a fresh login.
+version: 2.1.0
+date: 2026-04-20
 ---
 
-# Playwright Skill (Session-Reuse Edition)
+# Playwright Skill (Canonical Browser Edition)
 
-Control the browser via Playwright scripts. This skill prioritizes **reusing
-the user's existing Chrome session** so you never download Chromium, never
-trigger a fresh login, and never lose cookies/state.
+Control the browser via local Playwright scripts. This skill prioritizes **reusing the user's existing authenticated browser session via CDP** so you do not lose cookies, trigger fresh logins, or download Chromium.
 
 ## Golden Rules
 
-1. **Use `playwright-core`, NOT `playwright`.**
-   `playwright-core` does not download any browsers. `playwright` tries to
-   download Chromium on install — that is exactly what we want to avoid.
-
-2. **Connect to the user's running Chrome via CDP whenever possible.**
-   This gives you the user's cookies, login sessions, extensions, everything.
-
-3. **Never run `npx playwright install`** unless the user explicitly asks for
-   a standalone Chromium. This downloads ~400 MB and is almost never needed.
-
-4. **Fallback order:**
-   CDP attach → launchPersistentContext (Chrome exe) → headless Chrome exe
+1. **Use `playwright-core`, not `playwright`.**
+2. **For authenticated workflows, attach to the canonical browser session via CDP.**
+3. **The browser does not need to be Google Chrome.** It can be Chrome, Edge, Brave, or another Chromium browser that exposes CDP.
+4. **Never assume a hardcoded executable or port.** Read local docs, env vars, launchers, or running processes first.
+5. **Use `browser.disconnect()` at the end, not `browser.close()`.**
+6. **Do not fall back to a fresh isolated browser for authenticated marketing workflows.** If the canonical session does not exist, stop and ask for setup.
 
 ---
 
@@ -40,7 +32,7 @@ Create a shared workspace for Playwright scripts:
 ```powershell
 $pwDir = "$env:TEMP\pw-ac-ui"
 if (-not (Test-Path $pwDir)) {
-  New-Item -ItemType Directory -Path $pwDir -Force
+  New-Item -ItemType Directory -Path $pwDir -Force | Out-Null
   Push-Location $pwDir
   npm init -y
   npm install playwright-core
@@ -54,39 +46,30 @@ When writing scripts, require from this workspace:
 const { chromium } = require(process.env.TEMP.replace(/\\/g, '/') + '/pw-ac-ui/node_modules/playwright-core');
 ```
 
-> **NOTE:** The path above uses `process.env.TEMP` to be portable across Windows machines.
-> For macOS/Linux, use `/tmp/pw-ac-ui` or an equivalent temp directory.
-
 ---
 
-## Strategy 1: CDP Attach (PREFERRED)
+## Strategy 1: CDP Attach (Preferred)
 
-Connect to the user's already-open Chrome. This preserves all sessions, logins,
-and cookies. The user must have Chrome running with `--remote-debugging-port`.
+Connect to the user's already-open canonical browser session. This preserves sessions, logins, cookies, and extensions.
 
-### How to launch Chrome with debugging
+### Browser Contract
 
-The user (or a previous session) may have already done this. Check first:
+The local environment should define:
 
-```powershell
-# Check if Chrome is running with a debugging port
-$chromeProcs = Get-CimInstance Win32_Process -Filter "Name = 'chrome.exe'" |
-  Select-Object -ExpandProperty CommandLine |
-  Where-Object { $_ -match 'remote-debugging-port' }
-if ($chromeProcs) { Write-Host "Chrome CDP already running" }
-```
+- which Chromium browser is canonical
+- which port or endpoint exposes CDP
+- which profile/session must be reused
 
-If Chrome is NOT running with CDP, launch it:
+### How to detect an existing CDP session on Windows
 
 ```powershell
-Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" `
-  -ArgumentList "--remote-debugging-port=9222"
+Get-CimInstance Win32_Process |
+  Where-Object {
+    $_.Name -match '^(chrome|msedge|brave)\.exe$' -and
+    $_.CommandLine -match 'remote-debugging-port'
+  } |
+  Select-Object Name, CommandLine
 ```
-
-> **WARNING**: This starts a NEW Chrome instance. If Chrome is already open
-> WITHOUT the debugging flag, you must close it first or use a different port.
-> The user's existing Chrome tabs will be accessible if they restart Chrome
-> with the flag.
 
 ### CDP Connect Script Pattern
 
@@ -94,24 +77,32 @@ Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" `
 const { execSync } = require('child_process');
 const { chromium } = require(process.env.TEMP.replace(/\\/g, '/') + '/pw-ac-ui/node_modules/playwright-core');
 
-// Auto-discover the CDP port from running Chrome processes
 function findCdpEndpoint() {
+  if (process.env.CDP_ENDPOINT) return process.env.CDP_ENDPOINT;
+
   const raw = execSync(
-    'powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"Name = \'chrome.exe\'\\" | Select-Object -ExpandProperty CommandLine | ConvertTo-Json -Compress"',
+    `powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(chrome|msedge|brave)\\.exe$' -and $_.CommandLine -match 'remote-debugging-port' } | Select-Object -ExpandProperty CommandLine | ConvertTo-Json -Compress"`,
     { encoding: 'utf8' }
   ).trim();
-  const cmds = JSON.parse(raw);
-  for (const cmd of cmds) {
-    const m = cmd.match(/--remote-debugging-port=(\d+)/);
-    if (m) return `http://127.0.0.1:${m[1]}`;
+
+  if (!raw) {
+    throw new Error('No CDP-compatible browser session found. Complete local setup first.');
   }
-  throw new Error('No Chrome instance found with --remote-debugging-port. Launch Chrome with that flag first.');
+
+  const cmds = JSON.parse(raw);
+  const list = Array.isArray(cmds) ? cmds : [cmds];
+  for (const cmd of list) {
+    const match = String(cmd).match(/--remote-debugging-port=(\d+)/);
+    if (match) return `http://127.0.0.1:${match[1]}`;
+  }
+
+  throw new Error('A browser process exists, but no remote debugging port was found.');
 }
 
 (async () => {
   const cdpEndpoint = findCdpEndpoint();
   const browser = await chromium.connectOverCDP(cdpEndpoint);
-  const context = browser.contexts()[0]; // reuse existing context with cookies
+  const context = browser.contexts()[0];
   const page = await context.newPage();
 
   try {
@@ -119,72 +110,56 @@ function findCdpEndpoint() {
       waitUntil: 'domcontentloaded',
       timeout: 60000
     });
-    // ... do your work ...
     await page.screenshot({ path: 'result.png' });
   } finally {
     await page.close();
-    browser.disconnect(); // disconnect, do NOT close — keeps Chrome alive
+    browser.disconnect();
   }
 })();
 ```
 
 **Key points:**
-- Use `browser.disconnect()` at the end, NOT `browser.close()`. You want to
-  detach without killing the user's Chrome.
-- Use `browser.contexts()[0]` to get the existing context with all cookies.
-- `context.newPage()` creates a new tab in the user's existing Chrome.
+
+- `browser.contexts()[0]` reuses the existing context with cookies.
+- `context.newPage()` creates a new tab in the user's live session.
+- `browser.disconnect()` detaches without closing the user's browser.
 
 ---
 
-## Strategy 2: Persistent Context (FALLBACK)
+## Strategy 2: Public, Unauthenticated Pages Only
 
-When CDP is not available (Chrome isn't running with the flag), use
-`launchPersistentContext` with the real Chrome executable. This opens a
-separate Chrome instance with its own profile but does NOT download Chromium.
+If a page does **not** require login and no canonical browser session exists, you may use `launchPersistentContext` with a real browser executable.
+
+> Do **not** use this fallback for ActiveCampaign, SendFlow, WhatsApp Web, or any workflow that depends on the user's authenticated session.
 
 ```javascript
 const { chromium } = require(process.env.TEMP.replace(/\\/g, '/') + '/pw-ac-ui/node_modules/playwright-core');
 
 (async () => {
+  const executablePath = process.env.BROWSER_EXE;
+  if (!executablePath) {
+    throw new Error('Set BROWSER_EXE before using the unauthenticated fallback.');
+  }
+
   const context = await chromium.launchPersistentContext(
-    process.env.TEMP + '/pw-playwright-profile', // dedicated profile dir
+    process.env.TEMP + '/pw-playwright-profile',
     {
-      executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe',
-      headless: false,
-      args: ['--profile-directory=Default']
+      executablePath,
+      headless: false
     }
   );
-  const page = context.pages()[0] || await context.newPage();
 
+  const page = context.pages()[0] || await context.newPage();
   try {
     await page.goto('https://example.com', {
       waitUntil: 'domcontentloaded',
       timeout: 60000
     });
-    // ... do your work ...
   } finally {
     await context.close();
   }
 })();
 ```
-
-**Key points:**
-- The profile directory persists cookies between runs, so you only log in once.
-- Use a stable path (not random temp) so sessions survive across agent invocations.
-- Use `headless: false` when the user needs to see what's happening or when the
-  site blocks headless browsers.
-
----
-
-## Strategy 3: Built-in Browser Subagent
-
-Some agent environments have a built-in browser tool. Use it for:
-- Quick navigation and inspection
-- Taking screenshots of pages
-- Simple click/type interactions
-
-It does NOT share the user's Chrome session, so it may trigger login screens on
-authenticated sites. Prefer CDP for authenticated workflows.
 
 ---
 
@@ -192,11 +167,10 @@ authenticated sites. Prefer CDP for authenticated workflows.
 
 | Scenario | Strategy |
 |----------|----------|
-| Site requires login (ActiveCampaign, WhatsApp Web, etc.) | **CDP Attach** |
-| Need to interact with user's open tabs | **CDP Attach** |
-| Site doesn't require auth, quick check | **Browser Subagent** or **Persistent Context** |
-| Need to automate a long flow with retries | **CDP Attach** or **Persistent Context** |
-| User explicitly asks for a fresh browser | **Persistent Context** |
+| Site requires login | **CDP Attach** |
+| Need to reuse open tabs or cookies | **CDP Attach** |
+| Public page with no auth and no canonical session | **Persistent Context** |
+| Authenticated workflow with no canonical session available | **Stop and complete setup first** |
 
 ---
 
@@ -206,7 +180,6 @@ authenticated sites. Prefer CDP for authenticated workflows.
 
 ```javascript
 await page.waitForSelector('.loaded');
-await page.waitForTimeout(2000);
 await page.waitForLoadState('networkidle');
 ```
 
@@ -236,26 +209,11 @@ await page.screenshot({ path: 'full.png', fullPage: true });
 
 ## Common Mistakes to Avoid
 
-1. **Downloading Chromium**: Never use `npx playwright install` or bare
-   `playwright` package. Always use `playwright-core` + real Chrome.
-
-2. **Closing the user's browser**: Use `browser.disconnect()` with CDP,
-   NOT `browser.close()`.
-
-3. **Creating a new context instead of reusing**: With CDP, always use
-   `browser.contexts()[0]` to get the existing context with cookies.
-
-4. **Not waiting for page load**: Always use `waitForLoadState` or
-   `waitForSelector` before interacting.
-
-5. **Hardcoded selectors**: Prefer `data-testid`, role-based selectors,
-   or semantic selectors over fragile CSS paths.
-
-6. **Using `playwright` package**: This triggers a ~400 MB Chromium download.
-   Use `playwright-core` instead.
-
-7. **Asking user to log in again**: If you're using CDP and the user is
-   already logged in, you inherit their session. Don't navigate to login pages.
+1. **Downloading Chromium**: never use `npx playwright install` or the `playwright` package.
+2. **Closing the user's browser**: use `browser.disconnect()`, not `browser.close()`.
+3. **Creating a new context instead of reusing**: with CDP, always use `browser.contexts()[0]`.
+4. **Hardcoding Chrome + 9222 as a universal rule**: read the local browser contract first.
+5. **Using a fresh browser for authenticated marketing tools**: this breaks the session model and usually forces login.
 
 ---
 
@@ -263,26 +221,21 @@ await page.screenshot({ path: 'full.png', fullPage: true });
 
 When asked to test a web application:
 
-1. **Check if Chrome is running with CDP** — if yes, attach via CDP
-2. **If no CDP**, start Chrome with `--remote-debugging-port=9222`
-3. **Open the target page** in a new tab
-4. **Take a screenshot** to verify the initial state
-5. **Interact** with elements (click, fill, select)
-6. **Take another screenshot** to verify the result
-7. **Disconnect** from the browser (don't close it)
-8. **Report** findings with screenshots as evidence
+1. Inspect the local browser contract or running processes.
+2. If a canonical CDP session exists, attach to it.
+3. If the target page is authenticated and no canonical session exists, stop and complete setup first.
+4. Open the target page in a new tab.
+5. Take screenshots before and after meaningful actions.
+6. Disconnect from the browser without closing it.
 
 ---
 
 ## Paths Reference (Windows)
 
-| Item | Path |
-|------|------|
+| Item | Example |
+|------|---------|
 | Chrome executable | `C:\Program Files\Google\Chrome\Application\chrome.exe` |
+| Edge executable | `C:\Program Files\Microsoft\Edge\Application\msedge.exe` |
+| Brave executable | `C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe` |
 | Playwright workspace | `$env:TEMP\pw-ac-ui` |
-| Persistent profile | `$env:TEMP\pw-playwright-profile` |
-| Chrome User Data | `$env:LOCALAPPDATA\Google\Chrome\User Data` |
-
-> **NOTE:** Paths use environment variables for portability. On macOS/Linux,
-> Chrome is at `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`
-> or `/usr/bin/google-chrome`.
+| Persistent fallback profile | `$env:TEMP\pw-playwright-profile` |

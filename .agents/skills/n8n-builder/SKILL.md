@@ -19,6 +19,7 @@ ready for import, or deploy directly via the N8N REST API.
 - User asks to integrate services (Telegram, Google Sheets, Email, etc.)
 - User asks to build a N8N flow
 - User mentions triggers, webhooks, or scheduled automations
+- User wants to create the SendFlow `Entrada` / `Saida` metrics flow in n8n
 
 ## N8N Workflow JSON Structure
 
@@ -143,7 +144,13 @@ curl -X POST http://localhost:5678/api/v1/workflows \
 
 ### Activate Workflow
 ```bash
-curl -X PATCH http://localhost:5678/api/v1/workflows/{id}/activate \
+curl -X POST http://localhost:5678/api/v1/workflows/{id}/activate \
+  -H "X-N8N-API-KEY: $N8N_API_KEY"
+```
+
+### Deactivate Workflow
+```bash
+curl -X POST http://localhost:5678/api/v1/workflows/{id}/deactivate \
   -H "X-N8N-API-KEY: $N8N_API_KEY"
 ```
 
@@ -157,6 +164,22 @@ Users can also import via N8N UI: Menu → Import from File → Select JSON
 3. **Generate the JSON**: Create the complete workflow JSON
 4. **Save the file**: Write to `workflow.json` (or descriptive name)
 5. **Provide instructions**: Tell user how to import or deploy
+
+## SendFlow Bonus Pattern: Entrada / Saida
+
+When the user wants the WhatsApp metrics flow for SendFlow, use this pattern:
+
+1. reuse a known-good workflow as the base
+2. patch the webhook path
+3. patch the target Google Sheet
+4. verify the `Webhook - Sendflow` node has a `webhookId`
+5. save with `PUT /api/v1/workflows/{id}`
+6. activate with `POST /api/v1/workflows/{id}/activate`
+7. register the hook on the SendFlow side
+8. validate one `added` event to `Entrada`
+9. validate one `removed` event to `Saida`
+
+If the production webhook returns `not registered`, regenerate `webhookId`, save, deactivate, activate, and test again.
 
 ## Common Mistakes
 

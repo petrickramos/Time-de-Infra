@@ -1,171 +1,196 @@
 # Workflow: E-mails no ActiveCampaign
 
-> Este workflow descreve como o agente cria e agenda sequências de e-mails de marketing no ActiveCampaign a partir de um Google Doc.
+> Este workflow descreve o modelo operacional recomendado para series de e-mail no ActiveCampaign quando o conteudo vem de um Google Doc e o layout nasce de um template humano ja aprovado.
 
 ---
 
 ## Fluxo Geral
 
-```
-Google Doc (conteúdo)
-       │
-       ▼
-  Agente lê o documento
-       │
-       ▼
-  Humano cria o 1º e-mail manualmente
-  (define template, layout, UTMs)
-       │
-       ▼
-  Agente replica o template do 1º e-mail
-  para criar os e-mails seguintes
-       │
-       ▼
-  Agente agenda cada e-mail via API + Playwright
-       │
-       ▼
-  Verificação via screenshot
+```text
+Google Doc (conteudo da serie)
+       |
+       v
+Humano cria o e-mail 1 manualmente
+       |
+       v
+Agente le o documento e extrai os e-mails seguintes
+       |
+       v
+Agente duplica o e-mail 1 como template base
+       |
+       v
+Agente ajusta copy, assunto, preheader, CTAs e horario
+       |
+       v
+Agente valida no editor + preview + teste (quando pedido)
 ```
 
 ---
 
-## Conceito Fundamental: O Primeiro E-mail
+## Regra Central: o E-mail 1 e Humano
 
-> **O primeiro e-mail da sequência é sempre criado pelo humano.** O agente NÃO cria e-mails do zero.
+> **O agente nao cria o primeiro e-mail do zero.** O `e-mail 1` da serie e sempre feito por uma pessoa e passa a ser a fonte de verdade visual para os proximos.
 
-### Por quê?
+### Por que isso importa?
 
-1. **O primeiro e-mail define o template base** — layout, cores, fontes, estrutura HTML
-2. **O primeiro e-mail define os UTMs** — `utm_source`, `utm_medium`, `utm_campaign`
-3. **O primeiro e-mail define o estilo** — tom de voz visual, posicionamento de imagens, botões
-4. O agente **replica** esse template para os e-mails seguintes, trocando apenas o conteúdo (copy, assunto, horário)
+Porque o `e-mail 1` define:
 
-### Na Prática
+- template base
+- layout
+- editor usado
+- estilo visual
+- estrutura dos blocos
+- UTMs e convencoes de link
 
-1. O humano vai ao ActiveCampaign e cria uma campanha de e-mail manualmente
-2. Configura o design, layout e UTMs
-3. Informa ao agente: "O primeiro e-mail já está criado, use-o como base para os próximos"
-4. O agente lê a estrutura do primeiro e-mail (via API ou Playwright) e replica
+O agente so deve operar com seguranca quando essa base ja existe.
+
+---
+
+## O Que o Agente Pode Alterar
+
+Quando a serie reaproveita o mesmo template base, o agente pode alterar:
+
+- nome da campanha
+- nome da mensagem
+- assunto
+- preheader
+- copy do miolo
+- texto dos botoes
+- links dos botoes
+- data e hora do envio
+
+## O Que o Agente Nao Deve Alterar Sozinho
+
+Sem instrucao explicita, o agente nao deve mexer em:
+
+- imagem de topo
+- rodape
+- redes sociais
+- cores
+- estrutura visual
+- tipo de editor/template
+
+Se o doc divergir estruturalmente do template base, vence o template base ou a tarefa deve ser escalada.
+
+---
+
+## Pre-requisitos
+
+Antes de rodar este workflow:
+
+1. O `e-mail 1` da serie ja existe no ActiveCampaign.
+2. O usuario informou qual campanha ou mensagem serve de base.
+3. A mesma sessao autenticada do navegador canonico pode ser reutilizada via CDP.
+4. O Google Doc esta organizado com ancoras claras para os e-mails seguintes.
 
 ---
 
 ## Entrada: Google Doc
 
-O Google Doc deve conter, para cada e-mail:
+O Google Doc deve conter, para cada e-mail da serie:
 
-| Campo | Descrição | Exemplo |
-|-------|-----------|---------|
-| **Assunto** | Linha de assunto do e-mail | "🔥 Última chance: inscrições fecham amanhã" |
-| **Pré-header** | Texto de preview | "Não perca essa oportunidade..." |
-| **Copy** | Conteúdo do corpo do e-mail | Texto completo com formatação |
-| **CTA** | Call-to-action (texto + link do botão) | "QUERO ME INSCREVER" → https://... |
-| **Data/Hora** | Quando o e-mail deve ser enviado | "2026-04-21 10:00 BRT" |
-| **Lista/Segmento** | Para quem enviar | "Lista: Leads Quentes" |
+| Campo | Descricao |
+|-------|-----------|
+| **Assunto** | Linha de assunto |
+| **Preheader** | Texto de preview |
+| **Texto do e-mail** | Copy do corpo editavel |
+| **CTA** | Texto e link do botao |
+| **Data/Hora** | Quando o e-mail deve ser agendado |
 
-### Formato Sugerido no Google Doc
+### Formato Sugerido
 
-```
-## E-mail 2 — [Nome do E-mail]
+```text
+## E-mail 2
 - Assunto: ...
-- Pré-header: ...
+- Preheader: ...
 - Data/Hora: YYYY-MM-DD HH:MM
-- Lista: ...
 
-### Copy:
-[Conteúdo do e-mail aqui]
+### Texto do e-mail
+[copy]
 
-### CTA:
+### CTA
 Texto: ...
 Link: ...
 ```
 
 ---
 
-## Execução pelo Agente
+## Execucao pelo Agente
 
-### Passo 1: Ler o Google Doc
+### Passo 1: Ler e parsear o documento
 
-O agente usa a skill `firecrawl` ou acessa o Google Doc via URL compartilhável:
+O agente extrai dos e-mails `2..N`:
 
-```bash
-npx firecrawl-cli scrape "https://docs.google.com/document/d/DOC_ID/pub" -o campaign-content.md
-```
+- assunto
+- preheader
+- corpo do e-mail
+- CTA
+- data e hora
 
-### Passo 2: Parsear o Conteúdo
+### Passo 2: Abrir a base correta
 
-O agente extrai de cada seção:
-- Assunto
-- Pré-header
-- Copy (corpo do e-mail)
-- CTA (texto + URL)
-- Data/hora de envio
-- Lista/segmento alvo
+O agente acessa o `e-mail 1` ja criado e confirma que ele e o template certo.
 
-### Passo 3: Replicar o Template do 1º E-mail
+> Prefira deep links canonicamente estaveis do ActiveCampaign, como `/app/campaigns/{cid}`, em vez de URLs antigas de resumo.
 
-Via API do ActiveCampaign ou Playwright:
-1. Acessar o 1º e-mail da sequência
-2. Duplicar a campanha
-3. Trocar assunto, pré-header, copy e CTA
-4. Configurar data/hora de envio
-5. Salvar
+### Passo 3: Duplicar o template base
 
-### Passo 4: Agendar
+O agente duplica a campanha/mensagem base e gera cada e-mail seguinte a partir dela.
 
-1. Configurar a data e hora de envio
-2. Selecionar a lista/segmento
-3. Agendar o e-mail
+### Passo 4: Editar sem destruir o layout
 
-### Passo 5: Verificar
+O agente deve:
 
-1. Tirar screenshot do e-mail agendado
-2. Confirmar que assunto, lista e horário estão corretos
-3. Relatar ao usuário
+- usar a API para metadata quando isso for seguro
+- usar o editor nativo da campanha para o corpo quando a fidelidade visual depender do template
+- preservar blocos nativos do layout
 
----
+O agente **nao deve** substituir o corpo inteiro por um bloco HTML gigante.
 
-## Guardrails (Regras de Segurança)
+### Passo 5: Agendar exatamente no horario do documento
 
-1. **NUNCA criar e-mail sem template base** — sempre replicar do primeiro
-2. **SEMPRE verificar UTMs** — todo link no e-mail deve ter `utm_source`, `utm_medium`, `utm_campaign`
-3. **NUNCA enviar imediatamente** — sempre agendar para o futuro
-4. **SEMPRE fazer preflight check** — verificar assunto, lista, horário antes de confirmar
-5. **NUNCA usar o browser_subagent para sites autenticados** — usar CDP via skill `playwright`
-6. **SEMPRE tirar screenshot** de confirmação após agendar
+O horario salvo deve bater com o horario informado no Google Doc. Nao aplique offsets implicitos.
+
+### Passo 6: Validar antes de encerrar
+
+Validacao minima:
+
+- nome da campanha
+- data e hora
+- assunto
+- preheader
+- estrutura visual no editor
+- preview
+- envio de teste, se solicitado
 
 ---
 
-## Exemplo de Sessão
+## Guardrails
 
-```
-Usuário: "Leia o Google Doc [URL] e crie os e-mails 2, 3 e 4 da sequência.
-          O e-mail 1 já está criado no ActiveCampaign."
+1. **Nunca criar e-mail sem template base.**
+2. **Nunca regravar o corpo inteiro com "HTMLzao".**
+3. **Usar Playwright + sessao CDP canonica para UI autenticada.**
+4. **Nao enviar imediatamente se a tarefa e de agendamento.**
+5. **O horario final deve ser exatamente o do documento.**
+6. **Se a estrutura divergir do template base, parar e escalar.**
+7. **Se o editor, o layout ou o encoding parecerem quebrados, parar e escalar.**
+
+---
+
+## Exemplo de Sessao
+
+```text
+Usuario: "Leia o Google Doc [URL] e crie os e-mails 2, 3 e 4.
+O e-mail 1 ja esta criado no ActiveCampaign e deve ser a base."
 
 Agente:
-  1. Lê o Google Doc via firecrawl
-  2. Parseia e-mails 2, 3 e 4
-  3. Conecta ao Chrome via CDP
-  4. Acessa ActiveCampaign
-  5. Duplica o e-mail 1 → cria e-mail 2
-  6. Troca conteúdo (assunto, copy, CTA)
-  7. Agenda para a data/hora especificada
-  8. Repete para e-mails 3 e 4
-  9. Tira screenshots de confirmação
-  10. Relata: "✅ E-mails 2, 3 e 4 criados e agendados."
+  1. Le o Google Doc
+  2. Parseia os e-mails 2, 3 e 4
+  3. Reaproveita a sessao autenticada do navegador
+  4. Abre o e-mail 1 no ActiveCampaign
+  5. Duplica a base para gerar o e-mail 2
+  6. Troca assunto, preheader, copy, CTA e horario
+  7. Repete para os demais
+  8. Valida preview e agenda
+  9. Relata o resultado
 ```
-
----
-
-## Referência: API ActiveCampaign
-
-Endpoints úteis (requerem API key):
-
-| Endpoint | Uso |
-|----------|-----|
-| `GET /api/3/campaigns` | Listar campanhas existentes |
-| `POST /api/3/campaigns` | Criar nova campanha |
-| `PUT /api/3/campaigns/:id` | Atualizar campanha |
-| `GET /api/3/lists` | Listar listas de contatos |
-
-> A API key deve ser configurada como variável de ambiente: `$env:AC_API_KEY`
-> A URL base depende da conta: `https://SUA_CONTA.api-us1.com`

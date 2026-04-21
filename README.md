@@ -1,139 +1,154 @@
-# Marketing Ops Harness
+# Time de Infra
 
-> Um **Agent Harness** pronto para uso que transforma agentes de IA (Codex, Claude Code, Cursor, Windsurf) em operadores autônomos de marketing — capazes de ler documentos de campanha, criar e agendar e-mails no ActiveCampaign e disparar mensagens no SendFlow/WhatsApp.
+> Um **Agent Harness** portavel que transforma agentes de IA (Codex, Claude Code, Cursor, Windsurf e outros agentes compativeis) em operadores de marketing capazes de ler documentos de campanha, criar series de e-mail no ActiveCampaign e operar campanhas no SendFlow/WhatsApp.
+
+> Nome do projeto: **Time de Infra**
 
 ---
 
-## O Que É Isso?
+## O Que E Isso?
 
-Este repositório é um **harness** — a infraestrutura operacional que envolve um agente de IA para torná-lo produtivo em tarefas de marketing digital. Ele contém:
+Este repositorio e o pacote de contexto operacional que torna um agente confiavel nesse dominio. Ele reune:
 
 | Componente | O Que Faz |
 |-----------|-----------|
-| **AGENTS.md** | Instruções globais de comportamento do agente (modo GSD) |
-| **Skills** | Pacotes modulares de expertise (Playwright, Firecrawl, etc.) |
+| **AGENTS.md** | Instrucoes globais de comportamento do agente |
+| **Skills** | Pacotes modulares de expertise (`playwright`, `napkin`, `n8n-builder`) |
 | **Napkin** | Runbook persistente com aprendizados operacionais |
-| **Workflows** | Documentação dos fluxos de ActiveCampaign e SendFlow |
-| **Adapters** | Instruções de adaptação para Claude Code, Cursor e Windsurf |
+| **Workflows** | Fluxos de ActiveCampaign, SendFlow e bonus de n8n |
+| **Adapters** | Adaptacao para Claude Code, Cursor, Windsurf e Deepagents |
 
 ### Terminologia
 
-| Termo | Definição |
+| Termo | Definicao |
 |-------|-----------|
-| **Harness** | A infraestrutura de software que envolve o agente — gerencia estado, contexto, ferramentas, segurança e confiabilidade. **É isso que este repositório é.** |
-| **Skill** | Um pacote modular de instruções que o agente carrega sob demanda (ex: `playwright`, `firecrawl`) |
-| **Agent** | O modelo de IA em si (Codex, Claude, GPT, etc.) — o "cérebro" que roda dentro do harness |
+| **Harness** | A infraestrutura que envolve o agente e o torna operavel com contexto, memoria, ferramentas e guardrails. **E isso que este repositorio e.** |
+| **Skill** | Um pacote modular de instrucoes carregado sob demanda |
+| **Agent** | O modelo de IA em si: Codex, Claude, GPT, etc. |
+
+---
+
+## Principio de Portabilidade
+
+Este repositorio precisa ser suficiente por si so. Quem receber o harness e roda-lo em **Claude Code**, **Cursor** ou **Windsurf** nao vera suas conversas anteriores no Codex.
+
+Tudo que for operacionalmente relevante deve morar em arquivos versionados:
+
+- `README.md`
+- `SETUP.md`
+- `ADAPTERS.md`
+- `workflows/`
+- `.agents/AGENTS.md`
+- `.agents/napkin.md`
+
+O que ficar so na conversa nao viaja com o harness.
 
 ---
 
 ## Arquitetura
 
-```
-┌─────────────────────────────────────────────────┐
-│                    HARNESS                       │
-│  ┌─────────────┐  ┌──────────┐  ┌────────────┐  │
-│  │  AGENTS.md  │  │  Napkin  │  │  Workflows │  │
-│  │  (regras)   │  │ (memória)│  │  (fluxos)  │  │
-│  └─────────────┘  └──────────┘  └────────────┘  │
-│  ┌──────────────────────────────────────────────┐│
-│  │              SKILLS                          ││
-│  │  playwright │ firecrawl │ n8n │ napkin │ ... ││
-│  └──────────────────────────────────────────────┘│
-│                       │                          │
-│              Navegador Canônico                  │
-│              (Chrome com CDP)                    │
-│                       │                          │
-│         ┌─────────────┼─────────────┐            │
-│         ▼             ▼             ▼            │
-│   ActiveCampaign  SendFlow   Google Docs         │
-└─────────────────────────────────────────────────┘
+```text
+HARNESS
+|- AGENTS.md       -> regras globais do agente
+|- napkin.md       -> memoria operacional persistente
+|- skills/         -> capacidades sob demanda
+|- workflows/      -> procedimentos por canal
+|- adapters/ docs  -> instrucoes para outras ferramentas
+|
+`- Navegador Canonico (sessao autenticada via CDP)
+   |- ActiveCampaign
+   |- SendFlow
+   `- WhatsApp Web
 ```
 
-O **Navegador Canônico** é uma instância do Chrome aberta com `--remote-debugging-port=9222`. O agente se conecta a ela via CDP (Chrome DevTools Protocol), herdando todas as sessões de login sem precisar de senhas ou tokens.
+O **Navegador Canonico** e a sessao autenticada escolhida pelo usuario para automacao. Ele **nao precisa ser Google Chrome**. Pode ser Chrome, Edge, Brave ou outro navegador Chromium compativel com CDP. O requisito real e:
+
+- haver um endpoint CDP conhecido
+- a sessao ser estavel
+- os logins serem reaproveitados pelo agente
 
 ---
 
-## Pré-requisitos
+## Pre-requisitos
 
 - **Node.js** 18+ instalado
-- **Google Chrome** instalado
-- **Conta ActiveCampaign** (para workflows de e-mail)
-- **Conta SendFlow** (para workflows de WhatsApp)
-- Uma **ferramenta de agente de IA** instalada:
-  - [OpenAI Codex](https://openai.com/codex) (nativo — zero configuração)
-  - [Claude Code](https://claude.ai/code) (ver [ADAPTERS.md](ADAPTERS.md))
-  - [Cursor](https://cursor.sh) (ver [ADAPTERS.md](ADAPTERS.md))
-  - [Windsurf](https://windsurf.com) (ver [ADAPTERS.md](ADAPTERS.md))
+- Um **navegador Chromium compativel com CDP** instalado
+- **Conta ActiveCampaign** para workflows de e-mail
+- **Conta SendFlow** para workflows de WhatsApp
+- Uma ferramenta de agente de IA:
+  - [OpenAI Codex](https://openai.com/codex)
+  - [Claude Code](https://claude.ai/code)
+  - [Cursor](https://cursor.sh)
+  - [Windsurf](https://windsurf.com)
+
+> Se a pessoa usa Firefox ou Safari no dia a dia, tudo bem. Para estes workflows autenticados ela ainda precisara de um navegador Chromium separado para expor CDP ao Playwright.
 
 ---
 
-## Como Começar
+## Como Comecar
 
-### 1. Clone o repositório
+### 1. Clone o repositorio
 
 ```bash
-git clone https://github.com/SEU_USUARIO/marketing-ops-harness.git
+git clone https://github.com/petrickramos/Time-de-Infra.git
 ```
 
-### 2. Posicione os arquivos
+### 2. Rode o Setup de Primeira Execucao
 
-Copie a pasta `.agents/` para o diretório raiz do seu usuário:
+Leia o [SETUP.md](SETUP.md). Ele cobre:
 
-```powershell
-# Windows (PowerShell)
-Copy-Item -Recurse -Force .\marketing-ops-harness\.agents\ $env:USERPROFILE\.agents\
+- auditoria do ambiente
+- instalacao do harness sem sobrescrever assets existentes
+- definicao do navegador canonico
+- login manual inicial nas plataformas
+- script de validacao via CDP
 
-# macOS/Linux
-cp -r ./marketing-ops-harness/.agents/ ~/.agents/
-```
+### 3. Adapte para sua ferramenta
 
-### 3. Siga o Setup de Primeira Execução
+Se voce **nao usa Codex**, leia o [ADAPTERS.md](ADAPTERS.md) para gerar os arquivos equivalentes para Claude Code, Cursor ou Windsurf.
 
-Leia o [SETUP.md](SETUP.md) — ele guia você por:
-- Instalação de dependências
-- Configuração do navegador canônico
-- Login nas plataformas
-- Teste de validação
+### 4. Leia os workflows antes da primeira operacao real
 
-### 4. Adapte para sua ferramenta (se necessário)
+Este harness assume guardrails especificos por canal. O fluxo de e-mail, por exemplo, parte do principio de que:
 
-Se você **não** usa o Codex, leia o [ADAPTERS.md](ADAPTERS.md) para adaptar os arquivos à sua ferramenta (Claude Code, Cursor, Windsurf).
+- o **e-mail 1** da serie e criado pelo humano
+- o agente usa esse e-mail como **fonte de verdade visual**
+- o agente cria apenas os e-mails seguintes
 
 ---
 
-## Workflows Disponíveis
+## Workflows Disponiveis
 
-| Workflow | Descrição | Documentação |
+| Workflow | Descricao | Documentacao |
 |----------|-----------|--------------|
-| **E-mails ActiveCampaign** | Lê Google Doc → replica template do 1º e-mail → agenda os demais | [activecampaign-emails.md](workflows/activecampaign-emails.md) |
-| **WhatsApp SendFlow** | Lê Google Doc → usa ID da campanha via URL → agenda mensagens | [sendflow-whatsapp.md](workflows/sendflow-whatsapp.md) |
+| **E-mails ActiveCampaign** | Humano cria o `e-mail 1` manualmente; agente duplica o template base, troca copy/CTA/horario e agenda os demais | [activecampaign-emails.md](workflows/activecampaign-emails.md) |
+| **WhatsApp SendFlow** | Agente le o Google Doc, usa a campanha existente no SendFlow via URL/ID e agenda as mensagens na mesma sessao autenticada | [sendflow-whatsapp.md](workflows/sendflow-whatsapp.md) |
+| **Bonus: n8n SendFlow Entrada/Saida** | Duplicar um workflow base, ajustar webhook/path/planilha e ativar via API para registrar metricas de `Entrada` e `Saida` | [n8n-sendflow-entrada-saida.md](workflows/n8n-sendflow-entrada-saida.md) |
 
 ---
 
-## Skills Incluídas
+## Skills Incluidas
 
-| Skill | Descrição |
+| Skill | Descricao |
 |-------|-----------|
-| `playwright` | Automação de browser via CDP — reusa sessão do Chrome, nunca baixa Chromium |
-| `firecrawl` | Scraping e pesquisa web com IA |
-| `napkin` | Memória persistente do agente — sempre ativa |
-| `n8n-builder` | Criação de workflows de automação N8N |
-| `interface-design` | Design de interfaces web modernas |
-| `skill-creator` | Criação e melhoria de skills |
+| `playwright` | Automacao de navegador via CDP, reaproveitando a sessao autenticada do usuario |
+| `napkin` | Memoria persistente do agente |
+| `n8n-builder` | Criacao, ajuste e deploy de workflows N8N, inclusive via API |
 
 ---
 
 ## Compatibilidade
 
-| Ferramenta | Status | Configuração |
+| Ferramenta | Status | Configuracao |
 |-----------|--------|-------------|
-| OpenAI Codex | ✅ Nativo | Zero config — usa `.agents/` diretamente |
-| Claude Code | ✅ Suportado | Ver [ADAPTERS.md](ADAPTERS.md) — adaptar para `CLAUDE.md` / `.claude/` |
-| Cursor | ✅ Suportado | Ver [ADAPTERS.md](ADAPTERS.md) — converter para `.cursor/rules/*.mdc` |
-| Windsurf | ✅ Suportado | Ver [ADAPTERS.md](ADAPTERS.md) — usar `AGENTS.md` na raiz ou `.windsurf/rules/` |
+| OpenAI Codex | Sim | Usa `.agents/` diretamente |
+| Claude Code | Sim | Ver [ADAPTERS.md](ADAPTERS.md) para adaptar para `CLAUDE.md` e `.claude/` |
+| Cursor | Sim | Ver [ADAPTERS.md](ADAPTERS.md) para converter em `.cursor/rules/*.mdc` |
+| Windsurf | Sim | Ver [ADAPTERS.md](ADAPTERS.md) para usar `AGENTS.md` na raiz ou `.windsurf/rules/` |
+| Deepagents | Parcial | Ver [ADAPTERS.md](ADAPTERS.md); usa `AGENTS.md` como fonte de verdade, mas depende do launcher/CLI local |
 
 ---
 
-## Licença
+## Licenca
 
-MIT — use, modifique e compartilhe livremente.
+MIT - use, modifique e compartilhe livremente.

@@ -19,7 +19,7 @@ must be continuously curated for fast reuse in future sessions.
 
 ## Session Start: Read And Curate
 
-First thing, every session — read `.agents/napkin.md` (or `.codex/napkin.md` for Codex) before doing anything
+First thing, every session — read `.agents/napkin.md` before doing anything
 else. Internalize what's there and apply it silently. Don't announce that you
 read it. Just apply what you know.
 

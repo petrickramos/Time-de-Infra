@@ -1,212 +1,228 @@
-# Setup de Primeira Execução
+# Setup de Primeira Execucao
 
-> Este guia é para a **primeira vez** que você roda o harness no seu computador. Após completar estes passos, o agente conseguirá operar de forma autônoma nas próximas sessões.
+> Este guia e para a **primeira vez** que voce roda o harness no seu computador. O objetivo e estabelecer um ambiente portavel: instalar o contexto do agente sem sobrescrever assets existentes, definir um navegador canonico reutilizavel e fazer o login manual inicial nas plataformas.
+
+> **Importante:** Claude Code, Cursor e Windsurf nao conseguem "ler" o historico das suas conversas no Codex. Se surgir uma decisao operacional importante durante o setup, registre-a no repositorio.
 
 ---
 
 ## Passo 1: Auditoria do Ambiente
 
-Antes de instalar qualquer coisa, o agente deve verificar o que já existe no seu sistema.
+Antes de instalar qualquer coisa, o agente deve verificar o que ja existe no sistema.
 
 ### Checklist de Auditoria
-
-O agente deve rodar estes comandos para mapear o estado atual:
 
 ```powershell
 # 1. Verificar Node.js
 node --version
 
-# 2. Verificar se a pasta .agents já existe
+# 2. Verificar diretorios ja existentes
 Test-Path "$env:USERPROFILE\.agents"
+Test-Path ".\.claude"
+Test-Path ".\.cursor"
+Test-Path ".\.windsurf"
 
-# 3. Verificar se Chrome está instalado
-Test-Path "C:\Program Files\Google\Chrome\Application\chrome.exe"
+# 3. Encontrar navegadores Chromium compativeis com CDP
+$browserCandidates = @(
+  "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+  "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
+  "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
+  "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
+  "$env:ProgramFiles\BraveSoftware\Brave-Browser\Application\brave.exe",
+  "${env:ProgramFiles(x86)}\BraveSoftware\Brave-Browser\Application\brave.exe"
+)
+$browserCandidates | Where-Object { Test-Path $_ }
 
-# 4. Verificar se playwright-core já está instalado em algum lugar
+# 4. Verificar se ja existe alguma sessao com remote debugging ativa
+Get-CimInstance Win32_Process |
+  Where-Object {
+    $_.Name -match '^(chrome|msedge|brave)\.exe$' -and
+    $_.CommandLine -match 'remote-debugging-port'
+  } |
+  Select-Object Name, CommandLine
+
+# 5. Verificar se playwright-core ja existe
 $pwDir = "$env:TEMP\pw-ac-ui"
 Test-Path "$pwDir\node_modules\playwright-core"
 
-# 5. Verificar se firecrawl-cli está disponível
-Get-Command firecrawl-cli -ErrorAction SilentlyContinue
-
 # 6. Verificar skills existentes
 if (Test-Path "$env:USERPROFILE\.agents\skills") {
-    Get-ChildItem "$env:USERPROFILE\.agents\skills" -Directory | Select-Object Name
+  Get-ChildItem "$env:USERPROFILE\.agents\skills" -Directory | Select-Object Name
 }
 ```
 
-> **Resultado esperado:** O agente saberá exatamente o que falta instalar e o que já existe. Ele deve preencher o que falta sem sobrescrever o que já funciona.
+> **Resultado esperado:** o agente sabera o que falta instalar, qual navegador pode ser reaproveitado e se ja existe uma sessao CDP ativa.
 
 ---
 
 ## Passo 2: Instalar o Harness
 
-### 2.1. Copiar arquivos do harness
+### 2.1. Copiar `.agents/` sem sobrescrever o que ja existe
 
-Se você clonou o repositório, copie a estrutura `.agents/` para o diretório do usuário:
+Se voce clonou o repositorio, use uma copia conservadora. O harness deve preencher lacunas, nao apagar customizacoes locais.
 
 ```powershell
-# Windows
-Copy-Item -Recurse -Force ".\marketing-ops-harness\.agents\" "$env:USERPROFILE\.agents\"
+$src = (Resolve-Path ".\marketing-ops-harness\.agents").Path
+$dst = Join-Path $env:USERPROFILE ".agents"
+
+New-Item -ItemType Directory -Path $dst -Force | Out-Null
+
+Get-ChildItem $src -Recurse -File | ForEach-Object {
+  $relative = $_.FullName.Substring($src.Length).TrimStart('\')
+  $target = Join-Path $dst $relative
+  $targetDir = Split-Path $target -Parent
+
+  New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+
+  if (-not (Test-Path $target)) {
+    Copy-Item $_.FullName -Destination $target
+  }
+}
 ```
 
 ```bash
-# macOS/Linux
-cp -r ./marketing-ops-harness/.agents/ ~/.agents/
+rsync -a --ignore-existing ./marketing-ops-harness/.agents/ ~/.agents/
 ```
 
-> **IMPORTANTE:** Se você já possui uma pasta `.agents/` com skills customizadas, o harness NÃO deve sobrescrever suas skills existentes. Copie apenas as que estão faltando.
+> **Regra:** se voce ja possui skills ou regras locais, preserve-as. Revise diferencas manualmente antes de substituir qualquer arquivo existente.
 
-### 2.2. Instalar Playwright workspace
+### 2.2. Instalar o workspace do Playwright
 
-O harness usa `playwright-core` (NÃO `playwright`) para evitar download de ~400 MB do Chromium.
+O harness usa `playwright-core` para evitar download automatico de navegadores.
 
 ```powershell
-# Criar workspace temporário para Playwright
 $pwDir = "$env:TEMP\pw-ac-ui"
 if (-not (Test-Path $pwDir)) {
-    New-Item -ItemType Directory -Path $pwDir -Force
-    Push-Location $pwDir
-    npm init -y
-    npm install playwright-core
-    Pop-Location
-    Write-Host "✅ playwright-core instalado em $pwDir"
+  New-Item -ItemType Directory -Path $pwDir -Force | Out-Null
+  Push-Location $pwDir
+  npm init -y
+  npm install playwright-core
+  Pop-Location
+  Write-Host "playwright-core instalado em $pwDir"
 } else {
-    Write-Host "✅ playwright-core já existe em $pwDir"
+  Write-Host "playwright-core ja existe em $pwDir"
 }
 ```
 
-> ⚠️ **NUNCA execute `npx playwright install`** — isso baixa o Chromium. Sempre use `playwright-core` + o Chrome que já está instalado no computador.
+> **Nunca execute `npx playwright install`.** Use `playwright-core` + um navegador Chromium real ja instalado na maquina.
 
-### 2.3. Instalar Firecrawl CLI (opcional)
+## Passo 3: Definir o Navegador Canonico
 
-Se você pretende usar a skill de pesquisa web:
+O **Navegador Canonico** e a sessao autenticada que o agente vai reutilizar em ActiveCampaign, SendFlow e WhatsApp Web. Ele **nao precisa ser Google Chrome**. Pode ser:
+
+- Google Chrome
+- Microsoft Edge
+- Brave
+- outro navegador Chromium compativel com CDP
+
+Se a pessoa usa Firefox ou Safari no dia a dia, tudo bem. Para estes workflows autenticados ela ainda precisara de um navegador Chromium separado.
+
+### 3.1. Escolher o executavel e a porta
+
+Use um executavel real instalado na maquina e uma porta estavel. `9222` e apenas um exemplo comum.
 
 ```powershell
-npm install -g firecrawl-cli
-npx firecrawl-cli auth   # Autenticação via browser
+$browserExe = "C:\Program Files\Microsoft\Edge\Application\msedge.exe"  # ajuste para sua maquina
+$cdpPort = 9222
+
+Start-Process $browserExe -ArgumentList "--remote-debugging-port=$cdpPort"
 ```
 
----
+> **Importante:** se o navegador escolhido ja estiver aberto sem a flag de debugging, feche-o e reabra a **mesma sessao/perfil** com `--remote-debugging-port`. O que importa nao e o nome do navegador, e sim a continuidade da sessao autenticada.
 
-## Passo 3: Configurar o Navegador Canônico
-
-O **Navegador Canônico** é uma instância do Chrome aberta com porta de depuração remota. O agente se conecta a ela via CDP (Chrome DevTools Protocol), herdando todas as suas sessões de login.
-
-### 3.1. Abrir Chrome com CDP
+### 3.2. Verificar que o CDP esta ativo
 
 ```powershell
-# Feche TODAS as instâncias do Chrome primeiro
-Get-Process chrome -ErrorAction SilentlyContinue | Stop-Process -Force
-Start-Sleep -Seconds 2
+$cdpPort = 9222
 
-# Abra Chrome com porta de depuração
-Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" `
-    -ArgumentList "--remote-debugging-port=9222"
-```
-
-> **ATENÇÃO:** O Chrome precisa ser a ÚNICA instância rodando. Se houver outro Chrome aberto sem a flag `--remote-debugging-port`, o CDP não funcionará.
-
-### 3.2. Verificar que o CDP está ativo
-
-```powershell
-# Verificar se Chrome está escutando na porta 9222
 try {
-    $response = Invoke-WebRequest -Uri "http://127.0.0.1:9222/json/version" -UseBasicParsing
-    Write-Host "✅ Chrome CDP ativo:" ($response.Content | ConvertFrom-Json).Browser
+  $response = Invoke-WebRequest -Uri "http://127.0.0.1:$cdpPort/json/version" -UseBasicParsing
+  Write-Host "Navegador CDP ativo:" ($response.Content | ConvertFrom-Json).Browser
 } catch {
-    Write-Host "❌ Chrome CDP não está respondendo. Verifique se o Chrome foi aberto com --remote-debugging-port=9222"
+  Write-Host "O endpoint CDP nao esta respondendo. Verifique o executavel e a porta escolhidos."
 }
 ```
 
+### 3.3. Regra operacional
+
+Depois que a sessao canonica estiver definida:
+
+- use sempre a **mesma sessao**
+- faca o login manual apenas uma vez
+- deixe claro no seu runbook local qual executavel e qual porta foram escolhidos
+
 ---
 
-## Passo 4: Login nas Plataformas (Manual, Uma Única Vez)
+## Passo 4: Login nas Plataformas (Manual, Uma Unica Vez)
 
-Agora você vai fazer login manualmente nas plataformas que o agente vai operar. **Isso precisa ser feito apenas uma vez** — depois disso, o agente reusa a sessão via CDP.
+Agora voce vai fazer login manualmente nas plataformas que o agente vai operar. Depois disso, o agente reaproveita a sessao via CDP.
 
 ### 4.1. ActiveCampaign
 
-1. No Chrome (que está com CDP ativo), navegue até a URL da sua conta ActiveCampaign:
+1. No navegador canonico, navegue ate a URL da sua conta ActiveCampaign:
    ```
    https://SUA_CONTA.activehosted.com
    ```
-2. Faça login com suas credenciais
-3. Confirme que está logado e o dashboard aparece
-4. **NÃO feche esta aba** — o agente vai acessá-la depois
+2. Faca login com suas credenciais.
+3. Confirme que o dashboard aparece.
+4. Nao feche a aba se voce pretende operar logo em seguida.
 
 ### 4.2. SendFlow
 
-1. No mesmo Chrome, abra uma nova aba e navegue até:
+1. No mesmo navegador canonico, abra:
    ```
    https://app.sendflow.pro
    ```
-2. Faça login com suas credenciais
-3. Confirme que o dashboard do SendFlow aparece
-4. **NÃO feche esta aba**
+2. Faca login.
+3. Confirme que o dashboard aparece.
 
-### 4.3. WhatsApp Web (se aplicável)
+### 4.3. WhatsApp Web (se aplicavel)
 
-Se a sua operação inclui disparo de mensagens via WhatsApp de teste:
-
-1. No mesmo Chrome, abra uma nova aba e navegue até:
+1. No mesmo navegador canonico, abra:
    ```
    https://web.whatsapp.com
    ```
-2. **Escaneie o QR Code** com o celular do número de disparo de testes
-3. Confirme que as conversas aparecem
-4. **NÃO feche esta aba**
+2. Escaneie o QR Code com o numero de disparo de testes.
+3. Confirme que as conversas aparecem.
 
-> **NOTA:** O WhatsApp Web pode exigir re-escaneamento do QR Code periodicamente. Se o agente detectar que a sessão expirou, ele vai pedir que você escaneie novamente.
+> **Nota:** o WhatsApp Web pode expirar periodicamente. Quando isso acontecer, reescaneie o QR Code na mesma sessao canonica.
 
 ---
 
-## Passo 5: Teste de Validação
+## Passo 5: Teste de Validacao
 
-Rode o script abaixo para confirmar que tudo está funcionando:
+Rode o script abaixo para confirmar que o agente consegue anexar na sessao CDP correta:
 
 ```powershell
-# Criar script de teste temporário
+$env:CDP_ENDPOINT = "http://127.0.0.1:9222"  # ajuste se voce escolheu outra porta
+
 $testScript = @"
 const { chromium } = require('$($env:TEMP -replace '\\','/')/pw-ac-ui/node_modules/playwright-core');
 
 (async () => {
-    console.log('🔌 Conectando ao Chrome via CDP...');
-    const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
-    const context = browser.contexts()[0];
-    const pages = context.pages();
+  const cdpEndpoint = process.env.CDP_ENDPOINT || 'http://127.0.0.1:9222';
+  console.log('Conectando ao navegador via CDP:', cdpEndpoint);
 
-    console.log('📄 Abas abertas:', pages.length);
-    for (const page of pages) {
-        console.log('  -', await page.title(), '|', page.url());
-    }
+  const browser = await chromium.connectOverCDP(cdpEndpoint);
+  const context = browser.contexts()[0];
+  const pages = context.pages();
 
-    // Verificar ActiveCampaign
-    const acPage = pages.find(p => p.url().includes('activehosted.com'));
-    if (acPage) {
-        console.log('✅ ActiveCampaign: sessão ativa');
-    } else {
-        console.log('⚠️  ActiveCampaign: não encontrado nas abas abertas');
-    }
+  console.log('Abas abertas:', pages.length);
+  for (const page of pages) {
+    console.log('  -', await page.title(), '|', page.url());
+  }
 
-    // Verificar SendFlow
-    const sfPage = pages.find(p => p.url().includes('sendflow'));
-    if (sfPage) {
-        console.log('✅ SendFlow: sessão ativa');
-    } else {
-        console.log('⚠️  SendFlow: não encontrado nas abas abertas');
-    }
+  const acPage = pages.find(p => p.url().includes('activehosted.com'));
+  console.log(acPage ? 'ActiveCampaign: sessao ativa' : 'ActiveCampaign: nao encontrado');
 
-    // Verificar WhatsApp
-    const waPage = pages.find(p => p.url().includes('web.whatsapp.com'));
-    if (waPage) {
-        console.log('✅ WhatsApp Web: sessão ativa');
-    } else {
-        console.log('ℹ️  WhatsApp Web: não encontrado (opcional)');
-    }
+  const sfPage = pages.find(p => p.url().includes('sendflow'));
+  console.log(sfPage ? 'SendFlow: sessao ativa' : 'SendFlow: nao encontrado');
 
-    browser.disconnect();
-    console.log('\\n🎉 Validação completa! O harness está pronto para uso.');
+  const waPage = pages.find(p => p.url().includes('web.whatsapp.com'));
+  console.log(waPage ? 'WhatsApp Web: sessao ativa' : 'WhatsApp Web: nao encontrado (opcional)');
+
+  browser.disconnect();
+  console.log('\nValidacao completa. O harness esta pronto para uso.');
 })();
 "@
 
@@ -216,38 +232,38 @@ node "$env:TEMP\harness-test.js"
 
 ### Resultado Esperado
 
-```
-🔌 Conectando ao Chrome via CDP...
-📄 Abas abertas: 3
+```text
+Conectando ao navegador via CDP: http://127.0.0.1:9222
+Abas abertas: 3
   - ActiveCampaign | https://suaconta.activehosted.com/...
   - SendFlow | https://app.sendflow.pro/...
   - WhatsApp Web | https://web.whatsapp.com/...
-✅ ActiveCampaign: sessão ativa
-✅ SendFlow: sessão ativa
-✅ WhatsApp Web: sessão ativa
+ActiveCampaign: sessao ativa
+SendFlow: sessao ativa
+WhatsApp Web: sessao ativa
 
-🎉 Validação completa! O harness está pronto para uso.
+Validacao completa. O harness esta pronto para uso.
 ```
 
 ---
 
-## Próximos Passos
+## Proximos Passos
 
-Após completar o setup:
+Apos completar o setup:
 
-1. ✅ **Leia os workflows** em [workflows/](workflows/) para entender como usar o agente
-2. ✅ **Se não usa Codex**, leia o [ADAPTERS.md](ADAPTERS.md) para adaptar os arquivos à sua ferramenta
-3. ✅ **Comece com uma tarefa simples** — peça ao agente para listar suas campanhas no ActiveCampaign
-4. ✅ **O agente aprende** — conforme você trabalha, ele atualiza o `napkin.md` com aprendizados para sessões futuras
+1. Leia os workflows em [workflows/](workflows/).
+2. Se voce usa **Claude Code**, **Cursor** ou **Windsurf**, aplique o [ADAPTERS.md](ADAPTERS.md).
+3. Comece com uma tarefa simples de leitura/validacao antes de operar uma campanha real.
+4. Registre excecoes e aprendizados no `napkin.md`.
 
 ---
 
 ## Troubleshooting
 
-| Problema | Solução |
+| Problema | Solucao |
 |----------|---------|
-| Chrome não conecta no CDP | Feche TODAS as instâncias do Chrome e reabra com `--remote-debugging-port=9222` |
-| `playwright` tentou baixar Chromium | Você instalou `playwright` em vez de `playwright-core`. Desinstale e reinstale: `npm uninstall playwright && npm install playwright-core` |
-| Sessão do ActiveCampaign expirou | Abra o Chrome canônico e faça login novamente. O agente herdará a nova sessão |
-| WhatsApp pediu QR Code novamente | Normal — escaneie novamente no Chrome canônico |
-| Agente não encontra as skills | Verifique se `.agents/skills/` está no diretório home do usuário (`$env:USERPROFILE\.agents\skills\`) |
+| O navegador nao conecta no CDP | Verifique o executavel escolhido, a porta e se a sessao foi reaberta com `--remote-debugging-port` |
+| `playwright` tentou baixar Chromium | Voce instalou `playwright` em vez de `playwright-core`. Reinstale corretamente |
+| Sessao do ActiveCampaign expirou | Refaca o login manual na sessao canonica; o agente herdara a nova sessao |
+| WhatsApp pediu QR Code novamente | Reescaneie o QR Code na mesma sessao canonica |
+| Agente nao encontra as skills | Verifique se `.agents/skills/` ou o diretorio equivalente da sua ferramenta foi criado corretamente |

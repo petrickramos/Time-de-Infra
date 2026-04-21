@@ -1,55 +1,56 @@
 # Workflow: Mensagens WhatsApp via SendFlow
 
-> Este workflow descreve como o agente agenda sequências de mensagens WhatsApp no SendFlow a partir de um Google Doc.
+> Este workflow descreve como o agente agenda sequencias de mensagens WhatsApp no SendFlow a partir de um Google Doc.
 
 ---
 
 ## Fluxo Geral
 
-```
-Google Doc (conteúdo + cronograma)
-       │
-       ▼
-  Agente lê o documento
-       │
-       ▼
-  Usuário fornece o ID da campanha
-  (extraído da URL do SendFlow)
-       │
-       ▼
-  Agente acessa SendFlow via CDP
-       │
-       ▼
-  Agente agenda cada mensagem
-       │
-       ▼
-  Verificação via screenshot
+```text
+Google Doc (conteudo + cronograma)
+       |
+       v
+Agente le o documento
+       |
+       v
+Usuario informa a campanha via URL ou ID
+       |
+       v
+Agente reutiliza a sessao autenticada do navegador canonico via CDP
+       |
+       v
+Agente agenda as mensagens no SendFlow
+       |
+       v
+Agente valida o resultado
 ```
 
 ---
 
 ## Conceito: ID da Campanha pela URL
 
-O SendFlow organiza as mensagens dentro de **campanhas**. O ID da campanha está contido na URL:
+O SendFlow organiza as mensagens dentro de campanhas. O ID da campanha costuma aparecer na URL:
 
-```
+```text
 https://app.sendflow.pro/campaign/12345
                                   ^^^^^
-                                  Este é o ID da campanha
+                                  Este e o ID da campanha
 ```
 
-> O usuário deve fornecer a URL da campanha ou o ID diretamente. O agente extrai o ID numérico da URL.
+O usuario pode fornecer a URL completa ou apenas o ID.
 
 ---
 
-## Pré-requisitos
+## Pre-requisitos
 
 Antes de executar este workflow, certifique-se de que:
 
-1. ✅ O **Chrome Canônico** está aberto com `--remote-debugging-port=9222`
-2. ✅ Você está **logado no SendFlow** (`https://app.sendflow.pro`)
-3. ✅ O **WhatsApp de disparo** está conectado (QR Code escaneado)
-4. ✅ A **campanha já existe** no SendFlow (com contatos/lista configurados)
+1. Existe uma **sessao de navegador canonica** pronta para reutilizacao via CDP.
+2. O usuario esta logado no SendFlow nessa sessao.
+3. O WhatsApp de teste esta conectado, se o fluxo exigir teste em WhatsApp Web.
+4. A campanha ja existe no SendFlow.
+
+> O navegador canonico nao precisa ser Google Chrome. Pode ser qualquer navegador Chromium compativel com CDP.
 
 ---
 
@@ -57,147 +58,138 @@ Antes de executar este workflow, certifique-se de que:
 
 O Google Doc deve conter, para cada mensagem:
 
-| Campo | Descrição | Exemplo |
-|-------|-----------|---------|
-| **Conteúdo** | Texto da mensagem WhatsApp | "Olá {nome}! Vamos lá..." |
-| **Mídia** | URL de imagem/vídeo (opcional) | `https://...imagem.jpg` |
-| **Data/Hora** | Quando a mensagem deve ser disparada | "2026-04-21 10:00 BRT" |
-| **Variáveis** | Campos personalizados | `{nome}`, `{empresa}`, etc. |
+| Campo | Descricao |
+|-------|-----------|
+| **Conteudo** | Texto da mensagem |
+| **Midia** | URL de imagem/video, se houver |
+| **Data/Hora** | Quando a mensagem deve ser disparada |
+| **Variaveis** | Campos personalizados como `{nome}` |
 
-### Formato Sugerido no Google Doc
+### Formato Sugerido
 
-```
-## Mensagem 1 — [Nome/Descrição]
+```text
+## Mensagem 1
 - Data/Hora: YYYY-MM-DD HH:MM
-- Mídia: [URL ou "nenhuma"]
+- Midia: [URL ou "nenhuma"]
 
-### Conteúdo:
-Olá {nome}!
+### Conteudo
+Ola {nome}!
 
-[Texto da mensagem aqui]
-
-Abraços,
-[Assinatura]
+[texto da mensagem]
 ```
 
 ---
 
-## Execução pelo Agente
+## Execucao pelo Agente
 
-### Passo 1: Obter o ID da Campanha
+### Passo 1: Obter o ID da campanha
 
-O usuário fornece a URL ou ID:
-
-```
-Usuário: "Agende as mensagens na campanha https://app.sendflow.pro/campaign/12345"
-Agente extrai: ID = 12345
-```
+O agente extrai o ID da URL ou usa o ID informado diretamente.
 
 ### Passo 2: Ler o Google Doc
 
-```bash
-npx firecrawl-cli scrape "https://docs.google.com/document/d/DOC_ID/pub" -o whatsapp-content.md
-```
+O agente parseia:
+
+- conteudo
+- midia
+- horario
+- variaveis
 
 ### Passo 3: Conectar ao SendFlow via CDP
 
+O agente usa Playwright conectado a sessao autenticada do navegador canonico.
+
 ```javascript
-const { chromium } = require('PLAYWRIGHT_CORE_PATH/playwright-core');
+const { chromium } = require(process.env.TEMP.replace(/\\/g, '/') + '/pw-ac-ui/node_modules/playwright-core');
 
 (async () => {
-    const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
-    const context = browser.contexts()[0];
-    const page = await context.newPage();
+  const cdpEndpoint = process.env.CDP_ENDPOINT || 'http://127.0.0.1:9222';
+  const browser = await chromium.connectOverCDP(cdpEndpoint);
+  const context = browser.contexts()[0];
+  const page = await context.newPage();
 
-    // Navegar para a campanha
+  try {
     await page.goto('https://app.sendflow.pro/campaign/12345', {
-        waitUntil: 'domcontentloaded',
-        timeout: 60000
+      waitUntil: 'domcontentloaded',
+      timeout: 60000
     });
-
-    // ... interagir com a UI do SendFlow para agendar mensagens ...
-
+    // ... interagir com a UI do SendFlow ...
+  } finally {
     await page.close();
     browser.disconnect();
+  }
 })();
 ```
 
-### Passo 4: Agendar Cada Mensagem
+> Se sua maquina usa outra porta, ajuste `CDP_ENDPOINT`. O ponto importante e reaproveitar a sessao existente.
+
+### Passo 4: Agendar cada mensagem
 
 Para cada mensagem no Google Doc:
-1. Acessar a seção de agendamento da campanha
-2. Inserir o conteúdo da mensagem
-3. Anexar mídia (se aplicável)
-4. Configurar data e hora de envio
-5. Confirmar agendamento
 
-### Passo 5: Verificar
+1. abrir a campanha correta
+2. inserir o conteudo
+3. anexar midia, se aplicavel
+4. configurar data e hora
+5. confirmar o agendamento
 
-1. Tirar screenshot de cada mensagem agendada
-2. Confirmar que conteúdo, horário e lista estão corretos
-3. Relatar ao usuário
+### Passo 5: Validar
+
+Validacao minima:
+
+- campanha correta
+- conteudo correto
+- horario correto
+- variaveis formatadas corretamente
+- evidencia visual ou confirmacao na UI
 
 ---
 
-## Guardrails (Regras de Segurança)
+## Guardrails
 
-1. **SEMPRE verificar que o WhatsApp está conectado** antes de agendar — checar na interface do SendFlow se o número está ativo
-2. **NUNCA disparar mensagem imediatamente** — sempre agendar para o futuro
-3. **SEMPRE usar CDP** para acessar o SendFlow — nunca browser_subagent (precisa sessão autenticada)
-4. **SEMPRE tirar screenshot** de confirmação após agendar cada mensagem
-5. **VERIFICAR variáveis** — confirmar que `{nome}` e outras variáveis estão formatadas corretamente
+1. **Sempre usar a sessao canonica via CDP para o SendFlow.**
+2. **Nao depender de historico de conversa externo ao repositorio.**
+3. **Nunca disparar imediatamente se a tarefa e de agendamento.**
+4. **Verificar se o WhatsApp esta conectado antes de concluir.**
+5. **Se a sessao estiver expirada, parar para re-login manual na mesma sessao canonica.**
 
 ---
 
 ## Login no WhatsApp de Teste (Primeira Vez)
 
-Se é a primeira vez usando este workflow, o agente deve:
+Se e a primeira vez usando este workflow:
 
-1. Navegar até a seção de configuração do WhatsApp no SendFlow
-2. Verificar se há um número conectado
-3. Se **não houver**, informar o usuário:
-   ```
-   ⚠️ Nenhum WhatsApp conectado no SendFlow.
-   
-   Para conectar:
-   1. Acesse https://app.sendflow.pro/settings/whatsapp (ou equivalente)
-   2. Clique em "Conectar novo número"
-   3. Escaneie o QR Code com o celular do número de disparo de testes
-   4. Aguarde a confirmação de conexão
-   
-   Após conectar, me avise para continuar o agendamento.
-   ```
-4. Se **houver**, prosseguir com o agendamento normalmente
+1. abra `https://web.whatsapp.com` na mesma sessao canonica
+2. escaneie o QR Code
+3. confirme que as conversas aparecem
+
+Depois disso, o agente reaproveita essa mesma sessao.
 
 ---
 
-## Exemplo de Sessão
+## Exemplo de Sessao
 
-```
-Usuário: "Leia o Google Doc [URL] e agende as mensagens na campanha
-          https://app.sendflow.pro/campaign/12345"
+```text
+Usuario: "Leia o Google Doc [URL] e agende as mensagens na campanha
+https://app.sendflow.pro/campaign/12345"
 
 Agente:
-  1. Extrai ID da campanha: 12345
-  2. Lê o Google Doc via firecrawl
-  3. Parseia 5 mensagens com datas/horários
-  4. Conecta ao Chrome via CDP
-  5. Acessa a campanha no SendFlow
-  6. Verifica que WhatsApp está conectado ✅
-  7. Agenda mensagem 1 para 2026-04-21 10:00
-  8. Agenda mensagem 2 para 2026-04-22 10:00
-  9. ... (repete para todas)
-  10. Tira screenshots de confirmação
-  11. Relata: "✅ 5 mensagens agendadas na campanha 12345."
+  1. Extrai o ID 12345
+  2. Le o Google Doc
+  3. Reutiliza a sessao autenticada via CDP
+  4. Abre a campanha no SendFlow
+  5. Agenda as mensagens
+  6. Valida o resultado
+  7. Relata a conclusao
 ```
 
 ---
 
 ## Troubleshooting
 
-| Problema | Solução |
+| Problema | Solucao |
 |----------|---------|
-| SendFlow mostra "sessão expirada" | Fazer login manualmente no Chrome canônico e tentar novamente |
-| WhatsApp desconectado | Re-escanear QR Code no SendFlow. O agente informará quando detectar isso |
-| Mensagem não foi agendada | Verificar se a data está no futuro e se o formato está correto |
-| Campanha não encontrada | Verificar se o ID está correto na URL |
+| Sessao expirada no SendFlow | Refaca o login manual na mesma sessao canonica |
+| WhatsApp desconectado | Reescaneie o QR Code no WhatsApp Web da mesma sessao |
+| Campanha nao encontrada | Verifique o ID extraido da URL |
+| Mensagem nao foi agendada | Verifique horario, variaveis e estado da campanha |
