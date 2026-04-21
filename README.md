@@ -30,7 +30,7 @@ Este repositorio e o pacote de contexto operacional que torna um agente confiave
 
 ## Principio de Portabilidade
 
-Este repositorio precisa ser suficiente por si so. Quem receber o harness e roda-lo em **Claude Code**, **Cursor** ou **Windsurf** nao vera suas conversas anteriores no Codex.
+Este repositorio precisa ser suficiente por si so. Ferramentas diferentes nao compartilham automaticamente memoria de conversa, contexto de sessoes anteriores ou decisoes que ficaram so no chat.
 
 Tudo que for operacionalmente relevante deve morar em arquivos versionados:
 

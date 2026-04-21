@@ -2,7 +2,7 @@
 
 > Este guia e para a **primeira vez** que voce roda o harness no seu computador. O objetivo e estabelecer um ambiente portavel: instalar o contexto do agente sem sobrescrever assets existentes, definir um navegador canonico reutilizavel e fazer o login manual inicial nas plataformas.
 
-> **Importante:** Claude Code, Cursor e Windsurf nao conseguem "ler" o historico das suas conversas no Codex. Se surgir uma decisao operacional importante durante o setup, registre-a no repositorio.
+> **Importante:** ferramentas diferentes nao compartilham automaticamente historico de conversa nem memoria operacional. Se surgir uma decisao importante durante o setup, registre-a no repositorio.
 
 ---
 
