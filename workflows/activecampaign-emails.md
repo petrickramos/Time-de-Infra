@@ -74,6 +74,59 @@ Se o doc divergir estruturalmente do template base, vence o template base ou a t
 
 ---
 
+## Guardrails de Encoding e Emoji
+
+Para series de e-mail com emoji, acentos ou destaque visual relevante:
+
+- preserve Unicode de ponta a ponta em `subject`, `preheader`, corpo e labels de botao
+- trate UTF-8 como obrigatorio em arquivos intermediarios, JSONs, HTMLs e scripts que mexam na copy
+- se um arquivo parecer mojibake no terminal, valide com `node` antes de concluir que houve regressao real de UTF-8
+- se algum acento ou emoji virar `?`, caractere de substituicao ou glifo incorreto no editor/preview, pare e escale
+
+> Sintoma tipico de falha de encoding: o emoji chega ao ActiveCampaign como um simbolo preto de interrogacao ou como `?`.
+
+Quando houver duvida residual:
+
+- registrar `emojiStatus: review_needed`
+- manter revisao visual humana para emoji e micro-espacamento
+
+---
+
+## Guardrails de CTA e UTM
+
+O link do `e-mail 1` e a fonte de verdade para rastreamento.
+
+Regra base:
+
+- manter `host` e `path` iguais ao template base
+- trocar apenas os tokens de rastreamento que variam por e-mail
+- nao improvisar dominio, subdominio ou path novo
+
+Padroes comuns:
+
+- `utm_content=emailN`
+- `utm_content=foemailN`
+- `sck=emailN`
+- `sck=foemailN`
+
+O harness deve preferir **script local** para derivar os links dos e-mails seguintes. O objetivo nao e "automatizar por automatizar"; e reduzir risco de:
+
+- drift de UTM
+- typo manual em query string
+- troca acidental de dominio ou path
+- inconsistencias entre botoes do mesmo e-mail
+
+Se a empresa usar outro modelo de rastreamento:
+
+1. inspeccionar o link-base do `e-mail 1`
+2. inferir quais partes sao fixas e quais variam por numero/etapa
+3. adaptar ou gerar um script novo para esse schema
+4. usar o script como protecao do harness em vez de editar os links na mao
+
+> Exemplo generico: [templates/utm-link-patcher.example.js](../templates/utm-link-patcher.example.js)
+
+---
+
 ## Pre-requisitos
 
 Antes de rodar este workflow:
@@ -133,11 +186,21 @@ O agente acessa o `e-mail 1` ja criado e confirma que ele e o template certo.
 
 > Prefira deep links canonicamente estaveis do ActiveCampaign, como `/app/campaigns/{cid}`, em vez de URLs antigas de resumo.
 
-### Passo 3: Duplicar o template base
+### Passo 3: Inspecionar o modelo de links
+
+Antes de trocar CTAs, o agente deve ler o link-base do `e-mail 1` e identificar:
+
+- quais partes do URL sao fixas
+- quais parametros mudam por e-mail
+- se existe convencao numerada de `utm_content`, `sck` ou equivalente
+
+Se houver mais de um botao, todos devem seguir a mesma derivacao do template-base.
+
+### Passo 4: Duplicar o template base
 
 O agente duplica a campanha/mensagem base e gera cada e-mail seguinte a partir dela.
 
-### Passo 4: Editar sem destruir o layout
+### Passo 5: Editar sem destruir o layout
 
 O agente deve:
 
@@ -147,11 +210,21 @@ O agente deve:
 
 O agente **nao deve** substituir o corpo inteiro por um bloco HTML gigante.
 
-### Passo 5: Agendar exatamente no horario do documento
+### Passo 6: Aplicar CTAs por script
+
+Ao atualizar os links:
+
+- derive as URLs a partir do link-base
+- aplique os tokens de rastreamento corretos para aquele e-mail
+- valide que `host` e `path` permaneceram identicos ao original
+
+Se o schema da empresa for diferente do exemplo local, o agente deve adaptar o script antes de rodar.
+
+### Passo 7: Agendar exatamente no horario do documento
 
 O horario salvo deve bater com o horario informado no Google Doc. Nao aplique offsets implicitos.
 
-### Passo 6: Validar antes de encerrar
+### Passo 8: Validar antes de encerrar
 
 Validacao minima:
 
@@ -159,6 +232,7 @@ Validacao minima:
 - data e hora
 - assunto
 - preheader
+- CTAs derivados corretamente do `e-mail 1`
 - estrutura visual no editor
 - preview
 - envio de teste, se solicitado
@@ -172,8 +246,10 @@ Validacao minima:
 3. **Usar Playwright + sessao CDP canonica para UI autenticada.**
 4. **Nao enviar imediatamente se a tarefa e de agendamento.**
 5. **O horario final deve ser exatamente o do documento.**
-6. **Se a estrutura divergir do template base, parar e escalar.**
-7. **Se o editor, o layout ou o encoding parecerem quebrados, parar e escalar.**
+6. **Preservar Unicode e UTF-8 de ponta a ponta quando houver emoji ou acentos sensiveis.**
+7. **Preferir script para derivacao de CTA/UTM, em vez de editar query strings manualmente.**
+8. **Se a estrutura divergir do template base, parar e escalar.**
+9. **Se o editor, o layout, os links ou o encoding parecerem quebrados, parar e escalar.**
 
 ---
 
